@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工單操作</title>
+<style>
+  :root { --bg: #fff; --fg: #1f2937; --muted: #6b7280; --line: #d1d5db; --accent: #06c755; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }
+  h1 { margin: 0 0 4px; font-size: 20px; }
+  p { margin: 0 0 16px; color: var(--muted); }
+  label { display: block; margin-bottom: 6px; font-weight: 600; }
+  textarea { width: 100%; min-height: 160px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+  button { width: 100%; margin-top: 16px; padding: 12px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; }
+  button:disabled { opacity: .5; }
+  #error { margin-top: 12px; color: #c0392b; }
+</style>
+</head>
+<body>
+<main id="form" hidden>
+  <h1 id="title"></h1>
+  <p id="subtitle"></p>
+  <label id="label" for="note"></label>
+  <textarea id="note" maxlength="1000"></textarea>
+  <button id="submit" type="button">送出</button>
+</main>
+<div id="error" role="alert"></div>
+
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+  // 部署時改成 LINE Developers 上的 LIFF ID
+  const LIFF_ID = 'REPLACE_WITH_LIFF_ID';
+
+  // 送出的文字由 Bot 的 webhook 接收，因此能用 reply 回卡片，不耗 push 額度
+  const ACTIONS = {
+    close: { command: '結案', label: '處理說明' },
+    cancel: { command: '取消', label: '原因' },
+    wait: { command: '等待客戶', label: '原因' },
+    transfer: { command: '轉單', label: '原因' }
+  };
+
+  const $ = function (id) { return document.getElementById(id); };
+  const showError = function (message) { $('error').textContent = message; };
+
+  async function main() {
+    await liff.init({ liffId: LIFF_ID });
+    const params = new URLSearchParams(location.search);
+    const ticket = params.get('ticket') || '';
+    const action = ACTIONS[params.get('action')];
+    const target = params.get('target') || '';
+
+    if (!action || !/^\d{8}-\d+$/.test(ticket) ||
+        (params.get('action') === 'transfer' && !/^U[0-9a-f]{32}$/.test(target))) {
+      showError('連結內容不正確，請回到群組重新操作。');
+      return;
+    }
+    if (!liff.isInClient()) {
+      showError('請從 LINE 群組內的工單卡片開啟此頁面。');
+      return;
+    }
+
+    $('title').textContent = action.command + ' ' + ticket;
+    $('subtitle').textContent = target ? '轉單給：' + (params.get('name') || '') : '';
+    $('label').textContent = action.label + '（必填）';
+    $('form').hidden = false;
+
+    $('submit').addEventListener('click', async function () {
+      const note = $('note').value.trim();
+      if (!note) {
+        showError('請填寫' + action.label + '。');
+        return;
+      }
+      showError('');
+      $('submit').disabled = true;
+      const lines = ['#' + action.command + ' ' + ticket];
+      if (target) lines.push('對象ID：' + target);
+      lines.push(action.label + '：' + note);
+      try {
+        await liff.sendMessages([{ type: 'text', text: lines.join('\n') }]);
+        liff.closeWindow();
+      } catch (err) {
+        $('submit').disabled = false;
+        showError('送出失敗：' + err.message);
+      }
+    });
+  }
+
+  main().catch(function (err) { showError('初始化失敗：' + err.message); });
+</script>
+</body>
+</html>
