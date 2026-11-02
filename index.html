@@ -68,19 +68,26 @@
     const ticket = params.get('ticket') || '';
     const action = ACTIONS[params.get('action')];
     const target = params.get('target') || '';
+    // 參數可被他人竄改：去掉換行避免夾帶指令，並限制長度
+    const clean = function (key) { return (params.get(key) || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 100); };
+    const name = clean('name');
+    const company = clean('company');
 
-    if (!action || !/^(ICT\d{4}|(ICT)?\d{8})-\d+$/.test(ticket) ||
+    if (!action || !/^(ICT)?\d{4,8}-\d+$/.test(ticket) ||
         (params.get('action') === 'transfer' && !/^U[0-9a-f]{32}$/.test(target))) {
       showError('連結內容不正確，請回到群組重新操作。');
       return;
     }
     const inClient = liff.isInClient();
     if (!inClient) $('submit').textContent = '複製指令';
+    // 手機版會直接送進開啟連結的聊天室，只允許群組，避免內容送到別的對話
+    if (inClient && liff.getContext().type !== 'group') {
+      showError('請從 LINE 群組內的工單卡片開啟此頁面。');
+      return;
+    }
 
-    // 群組內不顯示年份，Bot 收到後會對應回完整編號
-    const shortTicket = ticket.replace(/^(ICT)?\d{4}(\d{4}-)/, '$1$2');
-    $('title').textContent = action.command + ' ' + shortTicket;
-    $('subtitle').textContent = target ? (params.get('company') || '') + '｜轉單給：' + (params.get('name') || '') : '';
+    $('title').textContent = action.command + ' ' + ticket;
+    $('subtitle').textContent = target ? company + '｜轉單給：' + name : '';
     $('label').textContent = action.label + '（必填）';
     $('form').hidden = false;
 
@@ -92,9 +99,9 @@
       }
       showError('');
       $('submit').disabled = true;
-      const lines = ['#' + action.command + ' ' + shortTicket];
+      const lines = ['#' + action.command + ' ' + ticket];
       // 群組只顯示姓名，Bot 收到後對應回 ID；沒有姓名時才退回 ID
-      if (target) lines.push(params.get('name') ? '對象：' + params.get('name') : '對象ID：' + target);
+      if (target) lines.push(name ? '對象：' + name : '對象ID：' + target);
       lines.push(action.label + '：' + note);
       if (!inClient) {
         await showCommand(lines.join('\n'));
