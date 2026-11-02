@@ -12,6 +12,7 @@
   p { margin: 0 0 16px; color: var(--muted); }
   label { display: block; margin-bottom: 6px; font-weight: 600; }
   textarea { width: 100%; min-height: 160px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+  input, select { width: 100%; margin-bottom: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); font: inherit; }
   button { width: 100%; margin-top: 16px; padding: 12px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; }
   button:disabled { opacity: .5; }
   #error { margin-top: 12px; color: #c0392b; }
@@ -25,11 +26,41 @@
   <textarea id="note" maxlength="1000"></textarea>
   <button id="submit" type="button">送出</button>
 </main>
+<main id="report" hidden>
+  <h1>建立工單</h1>
+  <p>送出後會公告到群組並 @All。</p>
+  <label for="company">公司（必填）</label>
+  <input id="company" maxlength="200">
+  <label for="priority">緊急程度</label>
+  <select id="priority"><option>一般</option><option>緊急</option></select>
+  <label for="source">來源</label>
+  <input id="source" maxlength="200">
+  <label for="hn_line">HN專線</label>
+  <input id="hn_line" maxlength="200">
+  <label for="circuit_id">電路編號</label>
+  <input id="circuit_id" maxlength="200">
+  <label for="contact_name">聯絡人</label>
+  <input id="contact_name" maxlength="200">
+  <label for="contact_phone">電話</label>
+  <input id="contact_phone" type="tel" maxlength="200">
+  <label for="description">說明</label>
+  <textarea id="description" maxlength="1000"></textarea>
+  <button id="report-submit" type="button">送出</button>
+</main>
+<main id="done" hidden>
+  <h1>工單已建立</h1>
+  <p>還差一步：把這行貼到 LINE 群組送出，Bot 才會公告並 @All。</p>
+  <input id="announce" readonly>
+  <button id="copy" type="button">複製</button>
+</main>
 <div id="error" role="alert"></div>
 
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <script>
   const LIFF_ID = '2012317534-uQ4HQu9A';
+  // Apps Script 部署網址（不含 token）
+  const API_URL = 'https://script.google.com/macros/s/AKfycbwCaUhXKAzwJADm7v1xlU2ZRaBp_UBWXT0IdQTZxAshv5WuZDiTTIyYzE2a6Z-nhj8R8A/exec';
+  const REPORT_FIELDS = ['company', 'priority', 'source', 'hn_line', 'circuit_id', 'contact_name', 'contact_phone', 'description'];
 
   // 送出的文字由 Bot 的 webhook 接收，因此能用 reply 回卡片，不耗 push 額度
   const ACTIONS = {
@@ -42,9 +73,86 @@
   const $ = function (id) { return document.getElementById(id); };
   const showError = function (message) { $('error').textContent = message; };
 
+  // 瀏覽器無法以使用者身分送訊息，改顯示短訊息讓使用者貼到群組
+  function showAnnounceLine(ticketId) {
+    $('report').hidden = true;
+    $('announce').value = '#工單 ' + ticketId;
+    $('done').hidden = false;
+    $('copy').addEventListener('click', async function () {
+      $('announce').select();
+      try {
+        await navigator.clipboard.writeText($('announce').value);
+        $('copy').textContent = '已複製';
+        showError('');
+      } catch (err) {
+        showError('無法自動複製，請手動複製上面這行。');
+      }
+    });
+  }
+
+  // 瀏覽器的登入狀態可能比 ID token 長效，過期的 token 無法通過後端驗證，需重新登入
+  function needsBrowserLogin() {
+    if (!liff.isLoggedIn()) return true;
+    const decoded = liff.getDecodedIDToken();
+    return !decoded || decoded.exp * 1000 <= Date.now();
+  }
+
+  // 先建單再送短訊息，Bot 收到後才能用 reply 公告。短訊息送失敗時重試不會重複建單
+  function showReportForm() {
+    const inClient = liff.isInClient();
+    if (inClient && liff.getContext().type !== 'group') {
+      showError('請從 LINE 群組內的連結開啟此頁面。');
+      return;
+    }
+    $('report').hidden = false;
+    let ticketId = '';
+
+    $('report-submit').addEventListener('click', async function () {
+      if (!$('company').value.trim()) {
+        showError('請填寫公司。');
+        return;
+      }
+      showError('');
+      $('report-submit').disabled = true;
+      try {
+        if (!ticketId) {
+          const report = {};
+          REPORT_FIELDS.forEach(function (key) { report[key] = $(key).value; });
+          // text/plain 不會觸發 CORS preflight，Apps Script 無法處理 preflight
+          const res = await fetch(API_URL + '?api=report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ idToken: liff.getIDToken(), report: report })
+          });
+          const data = await res.json();
+          if (!data.ok) throw new Error(data.error);
+          ticketId = data.ticket_id;
+        }
+        if (!inClient) {
+          showAnnounceLine(ticketId);
+          return;
+        }
+        await liff.sendMessages([{ type: 'text', text: '#工單 ' + ticketId }]);
+        liff.closeWindow();
+      } catch (err) {
+        $('report-submit').disabled = false;
+        showError('送出失敗：' + err.message + (ticketId ? '（工單 ' + ticketId + ' 已建立，請再按一次送出公告）' : ''));
+      }
+    });
+  }
+
   async function main() {
     await liff.init({ liffId: LIFF_ID });
     const params = new URLSearchParams(location.search);
+    if (params.get('action') === 'report') {
+      if (!liff.isInClient() && needsBrowserLogin()) {
+        if (liff.isLoggedIn()) liff.logout();
+        liff.login({ redirectUri: location.href });
+        return;
+      }
+      showReportForm();
+      return;
+    }
     const ticket = params.get('ticket') || '';
     const action = ACTIONS[params.get('action')];
     const target = params.get('target') || '';
