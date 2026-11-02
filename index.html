@@ -69,7 +69,7 @@
     const action = ACTIONS[params.get('action')];
     const target = params.get('target') || '';
 
-    if (!action || !/^(ICT)?\d{8}-\d+$/.test(ticket) ||
+    if (!action || !/^(ICT\d{4}|(ICT)?\d{8})-\d+$/.test(ticket) ||
         (params.get('action') === 'transfer' && !/^U[0-9a-f]{32}$/.test(target))) {
       showError('連結內容不正確，請回到群組重新操作。');
       return;
