@@ -77,8 +77,8 @@
     const inClient = liff.isInClient();
     if (!inClient) $('submit').textContent = '複製指令';
 
-    $('title').textContent = action.command + ' ' + ticket;
-    $('subtitle').textContent = target ? '轉單給：' + (params.get('name') || '') : '';
+    $('title').textContent = action.command + ' ' + ticket.slice(4);
+    $('subtitle').textContent = target ? (params.get('company') || '') + '｜轉單給：' + (params.get('name') || '') : '';
     $('label').textContent = action.label + '（必填）';
     $('form').hidden = false;
 
