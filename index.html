@@ -77,7 +77,9 @@
     const inClient = liff.isInClient();
     if (!inClient) $('submit').textContent = '複製指令';
 
-    $('title').textContent = action.command + ' ' + ticket.replace(/^(ICT)?\d{4}(\d{4}-)/, '$1$2');
+    // 群組內不顯示年份，Bot 收到後會對應回完整編號
+    const shortTicket = ticket.replace(/^(ICT)?\d{4}(\d{4}-)/, '$1$2');
+    $('title').textContent = action.command + ' ' + shortTicket;
     $('subtitle').textContent = target ? (params.get('company') || '') + '｜轉單給：' + (params.get('name') || '') : '';
     $('label').textContent = action.label + '（必填）';
     $('form').hidden = false;
@@ -90,7 +92,7 @@
       }
       showError('');
       $('submit').disabled = true;
-      const lines = ['#' + action.command + ' ' + ticket];
+      const lines = ['#' + action.command + ' ' + shortTicket];
       if (target) lines.push('對象ID：' + target);
       lines.push(action.label + '：' + note);
       if (!inClient) {
