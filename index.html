@@ -93,7 +93,8 @@
       showError('');
       $('submit').disabled = true;
       const lines = ['#' + action.command + ' ' + shortTicket];
-      if (target) lines.push('對象ID：' + target);
+      // 群組只顯示姓名，Bot 收到後對應回 ID；沒有姓名時才退回 ID
+      if (target) lines.push(params.get('name') ? '對象：' + params.get('name') : '對象ID：' + target);
       lines.push(action.label + '：' + note);
       if (!inClient) {
         await showCommand(lines.join('\n'));
