@@ -25,6 +25,11 @@
   <textarea id="note" maxlength="1000"></textarea>
   <button id="submit" type="button">送出</button>
 </main>
+<main id="done" hidden>
+  <h1>還差一步</h1>
+  <p id="done-message"></p>
+  <textarea id="command" readonly></textarea>
+</main>
 <div id="error" role="alert"></div>
 
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
@@ -42,6 +47,21 @@
   const $ = function (id) { return document.getElementById(id); };
   const showError = function (message) { $('error').textContent = message; };
 
+  // 瀏覽器無法以使用者身分送訊息，改由使用者把指令貼到群組，Bot 一樣能用 reply 回卡片
+  async function showCommand(text) {
+    $('form').hidden = true;
+    $('command').value = text;
+    $('done').hidden = false;
+    $('command').select();
+    $('done-message').textContent = '請複製下面的內容，到 LINE 群組貼上並送出。';
+    try {
+      await navigator.clipboard.writeText(text);
+      $('done-message').textContent = '已複製，請到 LINE 群組貼上並送出。';
+    } catch (err) {
+      // 維持手動複製的提示
+    }
+  }
+
   async function main() {
     await liff.init({ liffId: LIFF_ID });
     const params = new URLSearchParams(location.search);
@@ -54,10 +74,8 @@
       showError('連結內容不正確，請回到群組重新操作。');
       return;
     }
-    if (!liff.isInClient()) {
-      showError('請從 LINE 群組內的工單卡片開啟此頁面。');
-      return;
-    }
+    const inClient = liff.isInClient();
+    if (!inClient) $('submit').textContent = '複製指令';
 
     $('title').textContent = action.command + ' ' + ticket;
     $('subtitle').textContent = target ? '轉單給：' + (params.get('name') || '') : '';
@@ -75,6 +93,10 @@
       const lines = ['#' + action.command + ' ' + ticket];
       if (target) lines.push('對象ID：' + target);
       lines.push(action.label + '：' + note);
+      if (!inClient) {
+        await showCommand(lines.join('\n'));
+        return;
+      }
       try {
         await liff.sendMessages([{ type: 'text', text: lines.join('\n') }]);
         liff.closeWindow();
